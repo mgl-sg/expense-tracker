@@ -32,25 +32,33 @@ async function gmailFetch(path, token) {
   return res.json();
 }
 
-function decodeBody(msg) {
-  // Try plain text first, then HTML
-  const parts = msg.payload?.parts || [];
-  
-  const tryPart = (mimeType) => {
-    const part = parts.find(p => p.mimeType === mimeType);
-    if (part?.body?.data) return Buffer.from(part.body.data, "base64url").toString("utf-8");
-    // Check nested parts
-    for (const p of parts) {
-      const nested = (p.parts || []).find(np => np.mimeType === mimeType);
-      if (nested?.body?.data) return Buffer.from(nested.body.data, "base64url").toString("utf-8");
-    }
-    return null;
-  };
+function b64decode(data) {
+  // Gmail uses base64url — replace URL-safe chars and decode
+  return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8");
+}
 
-  let text = null;
-  if (msg.payload?.body?.data) text = Buffer.from(msg.payload.body.data, "base64url").toString("utf-8");
-  if (!text) text = tryPart("text/plain");
-  if (!text) text = tryPart("text/html");
+function getAllParts(payload) {
+  const parts = [];
+  const collect = (p) => {
+    if (p.body?.data) parts.push(p);
+    for (const sub of p.parts || []) collect(sub);
+  };
+  collect(payload);
+  return parts;
+}
+
+function decodeBody(msg) {
+  const allParts = getAllParts(msg.payload);
+  
+  // Prefer plain text
+  const plain = allParts.find(p => p.mimeType === "text/plain");
+  if (plain?.body?.data) return b64decode(plain.body.data);
+
+  // Fall back to HTML
+  const html = allParts.find(p => p.mimeType === "text/html");
+  let text = html?.body?.data ? b64decode(html.body.data) : "";
+  
+  if (!text && msg.payload?.body?.data) text = b64decode(msg.payload.body.data);
   if (!text) return "";
 
   // Strip HTML tags and clean up whitespace
