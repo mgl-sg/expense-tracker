@@ -449,7 +449,7 @@ function DeletedModal({deleted,categories,onRecover,onPermanentDelete,onClearAll
 }
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
-const LATEST_SCAN = [{"merchant": "Bus/MRT", "amount": 7.32, "amountRaw": "", "date": "2026-06-04", "category": "Public Transport", "payment": "UOB Credit Card", "note": "", "emailId": "19e8f6120fafb9ea", "source": "email"}, {"merchant": "Bus/MRT", "amount": 2.5, "amountRaw": "", "date": "2026-06-04", "category": "Public Transport", "payment": "UOB Credit Card", "note": "Accumulated transit", "emailId": "19e8f65f54db79c9", "source": "email"}, {"merchant": "PayNow Transfer", "amount": 6000.0, "amountRaw": "", "date": "2026-06-03", "category": "Others", "payment": "PayNow", "note": "To: iFAST Financial", "emailId": "19e8c9b8507ae609", "source": "email"}, {"merchant": "Bus/MRT", "amount": 1.9, "amountRaw": "", "date": "2026-06-03", "category": "Public Transport", "payment": "UOB Credit Card", "note": "", "emailId": "19e8a3927a35a122", "source": "email"}, {"merchant": "TADA", "amount": 32.13, "amountRaw": "", "date": "2026-06-03", "category": "PHV / Taxi", "payment": "UOB Credit Card", "note": "", "emailId": "19e8b1678fbaa785", "source": "email"}, {"merchant": "Anthropic", "amount": 63.77, "amountRaw": "", "date": "2026-06-03", "category": "Utilities", "payment": "UOB Credit Card", "note": "", "emailId": "19e8cc51aad921e4", "source": "email"}, {"merchant": "Bill Payment", "amount": 933.62, "amountRaw": "", "date": "2026-06-03", "category": "Others", "payment": "DBS", "note": "digibank bill payment", "emailId": "19e8951771c9531a", "source": "email"}, {"merchant": "PayNow Transfer", "amount": 133.0, "amountRaw": "", "date": "2026-05-28", "category": "Others", "payment": "PayNow", "note": "", "emailId": "19e6e015cb0417b6", "source": "email"}, {"merchant": "DBS Bank Transfer", "amount": 3000.0, "amountRaw": "", "date": "2026-05-28", "category": "Others", "payment": "Bank Transfer", "note": "UOB to DBS a/c ending 9570", "emailId": "19e6dec08d9ddadd", "source": "email"}];
+const LATEST_SCAN = [];
 
 // Permanently deleted emailIds — embedded so they survive storage wipes.
 // Updated by Claude when you permanently delete a transaction.
@@ -641,6 +641,20 @@ export default function App() {
     }
   };
 
+  const clearAllData = async () => {
+    if (!window.confirm("Clear all transactions and start fresh? This cannot be undone.")) return;
+    setExpenses([]); expRef.current = [];
+    setDeleted([]);
+    setLastScan(null);
+    try {
+      await window.storage.set("expenses_v2", JSON.stringify([]));
+      await window.storage.set("spendsg_deleted", JSON.stringify([]));
+      await window.storage.set("spendsg_blocklist", JSON.stringify([]));
+      await window.storage.set("last_scan", "");
+    } catch {}
+    setToast({msg:"🗑 All data cleared — click Scan Gmail to import fresh", accent:"#f59e0b"});
+  };
+
   const runScan = async () => {
     if (scanState.status === "scanning") return;
     setScanState({status:"scanning",phase:"Connecting to Gmail...",progress:5,eta:45});
@@ -733,6 +747,9 @@ export default function App() {
         <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 28px",borderBottom:"1px solid #353a47",background:"#252932"}}>
           <div style={{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800,letterSpacing:-0.5}}>spend<span style={{color:"#4ade80"}}>.</span>sg</div>
           <div style={{display:"flex",gap:24,alignItems:"center"}}>
+            <button onClick={clearAllData} style={{fontSize:11,color:"#f87171",background:"rgba(248,113,113,0.08)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:8,padding:"6px 14px",cursor:"pointer",fontFamily:"'DM Mono',monospace"}}>
+              🗑 Clear data
+            </button>
             <button onClick={runScan} disabled={scanState.status==="scanning"} style={{fontSize:11,color:scanState.status==="scanning"?"#8b95a8":"#22d3ee",background:scanState.status==="scanning"?"rgba(34,211,238,0.04)":"rgba(34,211,238,0.08)",border:"1px solid rgba(34,211,238,0.25)",borderRadius:8,padding:"6px 14px",cursor:scanState.status==="scanning"?"default":"pointer",fontFamily:"'DM Mono',monospace",display:"flex",alignItems:"center",gap:6}}>
               {scanState.status==="scanning"?"⏳ Scanning...":"📧 Scan Gmail"}
             </button>
