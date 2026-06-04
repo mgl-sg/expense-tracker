@@ -103,6 +103,7 @@ export default async function handler(req, res) {
 
     console.log(`Fetched ${emails.length} email bodies`);
     emails.forEach(e => console.log(`  - From: ${e.from} | Subject: ${e.subject}`));
+    if (emails.length > 0) console.log(`First email body sample: ${emails[0].body.slice(0, 500)}`);
 
     // 4. Ask Claude to extract expenses from all emails in one call
     const prompt = `You are extracting expense transactions from Singapore bank and payment app emails.
