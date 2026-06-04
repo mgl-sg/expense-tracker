@@ -57,7 +57,7 @@ export default async function handler(req, res) {
 
     // 2. Search Gmail for bank/transaction emails from last 30 days
     const query = encodeURIComponent(
-      "newer_than:30d (from:unialerts@uobgroup.com OR from:ibanking.alert@dbs.com OR from:paylah.alert@dbs.com)"
+      "newer_than:30d (from:unialerts@uobgroup.com OR from:ibanking.alert@dbs.com OR from:paylah.alert@dbs.com) label:updates"
     );
     const list = await gmailFetch(`messages?maxResults=40&q=${query}`, token);
     const messages = list.messages || [];
