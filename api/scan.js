@@ -1,4 +1,3 @@
-
 /**
  * Vercel serverless function — scans Gmail for expense emails
  * and uses Claude to extract transaction data.
@@ -9,7 +8,7 @@
  *   GMAIL_CLIENT_SECRET — Google OAuth client secret
  *   GMAIL_REFRESH_TOKEN — your refresh token (one-time setup)
  */
- 
+
 async function getAccessToken() {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -25,14 +24,14 @@ async function getAccessToken() {
   if (!data.access_token) throw new Error("Failed to get access token: " + JSON.stringify(data));
   return data.access_token;
 }
- 
+
 async function gmailFetch(path, token) {
   const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return res.json();
 }
- 
+
 function decodeBody(msg) {
   // Try plain text first, then HTML
   const parts = msg.payload?.parts || [];
@@ -44,29 +43,31 @@ function decodeBody(msg) {
   if (msg.payload?.body?.data) return Buffer.from(msg.payload.body.data, "base64url").toString("utf-8");
   return tryPart("text/plain") || tryPart("text/html") || "";
 }
- 
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
- 
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set" });
   if (!process.env.GMAIL_CLIENT_ID) return res.status(500).json({ error: "Gmail credentials not configured" });
- 
+
   try {
     // 1. Get Gmail access token
     const token = await getAccessToken();
- 
+
     // 2. Search Gmail for bank/transaction emails from last 30 days
     const query = encodeURIComponent(
-      "newer_than:30d (from:dbs.com OR from:uob.com.sg OR from:grab.com OR from:gojek.com OR from:tada.global OR from:paynow OR \"PayLah\" OR \"PayNow\" OR \"GIRO\" OR \"Fast Payment\" OR \"card transaction\" OR \"card alert\" OR \"debit advice\" OR \"credit advice\" OR \"payment successful\" OR \"transaction alert\" OR \"ride receipt\" OR \"trip receipt\" OR \"your receipt\")"
+      "newer_than:30d (from:unialerts@uobgroup.com OR from:ibanking.alert@dbs.com OR from:paylah.alert@dbs.com)"
     );
     const list = await gmailFetch(`messages?maxResults=40&q=${query}`, token);
     const messages = list.messages || [];
- 
+
+    console.log(`Found ${messages.length} emails matching query`);
+
     if (messages.length === 0) {
-      return res.status(200).json({ expenses: [], count: 0 });
+      return res.status(200).json({ expenses: [], count: 0, debug: "No emails matched the search query" });
     }
- 
+
     // 3. Fetch each email body
     const emails = [];
     for (const { id } of messages.slice(0, 30)) {
@@ -78,10 +79,13 @@ export default async function handler(req, res) {
         emails.push({ id, subject, from, body });
       } catch {}
     }
- 
+
+    console.log(`Fetched ${emails.length} email bodies`);
+    emails.forEach(e => console.log(`  - From: ${e.from} | Subject: ${e.subject}`));
+
     // 4. Ask Claude to extract expenses from all emails in one call
     const prompt = `You are extracting expense transactions from Singapore bank and payment app emails.
- 
+
 Rules:
 - Extract ONLY actual spending transactions (purchases, rides, transfers out, bill payments)
 - Skip: OTPs, login alerts, promotional emails, newsletters, balance summaries, incoming transfers (money received), credit card bill statements (the summary, not individual charges)
@@ -91,15 +95,15 @@ Rules:
 - merchant: use the actual merchant name, not the bank name (e.g. "Grab" not "DBS Card Alert")
 - payment: use the actual payment method e.g. "DBS Credit Card", "UOB Debit Card", "PayLah!", "PayNow", "Cash"
 - If amount includes GST, use the total amount paid
- 
+
 Return ONLY a JSON array (no markdown, no explanation) of objects:
 { "emailId": string, "merchant": string, "amount": number, "date": "YYYY-MM-DD", "category": one of ["Food & Dining","Public Transport","PHV / Taxi","Shopping","Groceries","Entertainment","Healthcare","Utilities","Annual","Business","Others"], "payment": string, "note": string }
- 
+
 Emails:
 ${emails.map((e, i) => `--- Email ${i + 1} (id: ${e.id}) ---\nFrom: ${e.from}\nSubject: ${e.subject}\nBody: ${e.body}`).join("\n\n")}
- 
+
 Return [] if no valid spending transactions found. JSON array only.`;
- 
+
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -113,13 +117,14 @@ Return [] if no valid spending transactions found. JSON array only.`;
         messages: [{ role: "user", content: prompt }],
       }),
     });
- 
+
     const claudeData = await claudeRes.json();
     const text = claudeData.content?.find(b => b.type === "text")?.text || "[]";
     const expenses = JSON.parse(text.replace(/```json|```/g, "").trim());
- 
+    console.log(`Claude extracted ${expenses.length} expenses`);
+
     return res.status(200).json({ expenses, count: expenses.length });
- 
+
   } catch (err) {
     console.error("Scan error:", err);
     return res.status(500).json({ error: err.message });
