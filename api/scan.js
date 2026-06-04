@@ -35,13 +35,33 @@ async function gmailFetch(path, token) {
 function decodeBody(msg) {
   // Try plain text first, then HTML
   const parts = msg.payload?.parts || [];
+  
   const tryPart = (mimeType) => {
     const part = parts.find(p => p.mimeType === mimeType);
     if (part?.body?.data) return Buffer.from(part.body.data, "base64url").toString("utf-8");
+    // Check nested parts
+    for (const p of parts) {
+      const nested = (p.parts || []).find(np => np.mimeType === mimeType);
+      if (nested?.body?.data) return Buffer.from(nested.body.data, "base64url").toString("utf-8");
+    }
     return null;
   };
-  if (msg.payload?.body?.data) return Buffer.from(msg.payload.body.data, "base64url").toString("utf-8");
-  return tryPart("text/plain") || tryPart("text/html") || "";
+
+  let text = null;
+  if (msg.payload?.body?.data) text = Buffer.from(msg.payload.body.data, "base64url").toString("utf-8");
+  if (!text) text = tryPart("text/plain");
+  if (!text) text = tryPart("text/html");
+  if (!text) return "";
+
+  // Strip HTML tags and clean up whitespace
+  return text
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&#[0-9]+;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 2000);
 }
 
 export default async function handler(req, res) {
