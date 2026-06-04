@@ -641,6 +641,41 @@ export default function App() {
     }
   };
 
+  const runScan = async () => {
+    if (scanState.status === "scanning") return;
+    setScanState({status:"scanning",phase:"Connecting to Gmail...",progress:5,eta:45});
+    try {
+      setScanState(p=>({...p,phase:"Reading emails...",progress:20}));
+      const res = await fetch("/api/scan", {method:"POST",headers:{"Content-Type":"application/json"}});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Scan failed");
+      const expenses = data.expenses || [];
+      setScanState(p=>({...p,phase:"Saving transactions...",progress:90}));
+      // Merge new expenses (skip duplicates by emailId)
+      const existingIds = new Set(expRef.current.map(e=>e.emailId).filter(Boolean));
+      const existingKeys = new Set(expRef.current.map(e=>`${e.merchant}|${e.amount}|${e.date}`));
+      let blocklist = new Set(PERMANENT_BLOCKLIST);
+      try { const r=await window.storage.get("spendsg_blocklist"); if(r?.value) JSON.parse(r.value).forEach(id=>blocklist.add(id)); } catch {}
+      const ts = Date.now();
+      const newOnes = expenses
+        .filter(e => !blocklist.has(e.emailId) && !existingIds.has(e.emailId) && !existingKeys.has(`${e.merchant}|${e.amount}|${e.date}`))
+        .map((e,i) => ({...e, id:ts+i, source:"email"}));
+      if (newOnes.length > 0) {
+        setExpenses(prev => { const next=[...newOnes,...prev]; saveExpenses(next); expRef.current=next; return next; });
+      }
+      const now = new Date().toISOString();
+      setLastScan(now);
+      try { await window.storage.set("last_scan", now); } catch {}
+      setScanState({status:"done",phase:"",progress:100,eta:0});
+      setToast({msg:`✅ Scan complete — ${newOnes.length} new transaction${newOnes.length!==1?"s":""}`,accent:"#4ade80"});
+      setTimeout(()=>setScanState({status:"idle",phase:"",progress:0,eta:0}),3000);
+    } catch(err) {
+      setScanState({status:"error",phase:"",progress:0,eta:0});
+      setToast({msg:"❌ Scan failed: "+err.message,accent:"#f87171"});
+      setTimeout(()=>setScanState({status:"idle",phase:"",progress:0,eta:0}),4000);
+    }
+  };
+
   // Scan state crawler — keeps bar moving while scan is running
   useEffect(()=>{
     if(scanState.status!=="scanning") return;
@@ -698,6 +733,9 @@ export default function App() {
         <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"14px 28px",borderBottom:"1px solid #353a47",background:"#252932"}}>
           <div style={{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800,letterSpacing:-0.5}}>spend<span style={{color:"#4ade80"}}>.</span>sg</div>
           <div style={{display:"flex",gap:24,alignItems:"center"}}>
+            <button onClick={runScan} disabled={scanState.status==="scanning"} style={{fontSize:11,color:scanState.status==="scanning"?"#8b95a8":"#22d3ee",background:scanState.status==="scanning"?"rgba(34,211,238,0.04)":"rgba(34,211,238,0.08)",border:"1px solid rgba(34,211,238,0.25)",borderRadius:8,padding:"6px 14px",cursor:scanState.status==="scanning"?"default":"pointer",fontFamily:"'DM Mono',monospace",display:"flex",alignItems:"center",gap:6}}>
+              {scanState.status==="scanning"?"⏳ Scanning...":"📧 Scan Gmail"}
+            </button>
             {deleted.length>0&&(
               <button onClick={()=>setModal("deleted")} style={{fontSize:11,color:"#f87171",background:"rgba(248,113,113,0.08)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:8,padding:"4px 10px",cursor:"pointer",fontFamily:"'DM Mono',monospace"}}>
                 🗑 {deleted.length}
