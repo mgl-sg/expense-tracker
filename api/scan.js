@@ -1,3 +1,4 @@
+
 /**
  * Vercel serverless function — scans Gmail for expense emails
  * and uses Claude to extract transaction data.
@@ -57,7 +58,7 @@ export default async function handler(req, res) {
  
     // 2. Search Gmail for bank/transaction emails from last 30 days
     const query = encodeURIComponent(
-      "newer_than:30d (receipt OR transaction OR debit OR credit OR payment OR transfer OR invoice OR \"amount\" OR \"S$\" OR \"SGD\")"
+      "newer_than:30d (from:dbs.com OR from:uob.com.sg OR from:grab.com OR from:gojek.com OR from:tada.global OR from:paynow OR \"PayLah\" OR \"PayNow\" OR \"GIRO\" OR \"Fast Payment\" OR \"card transaction\" OR \"card alert\" OR \"debit advice\" OR \"credit advice\" OR \"payment successful\" OR \"transaction alert\" OR \"ride receipt\" OR \"trip receipt\" OR \"your receipt\")"
     );
     const list = await gmailFetch(`messages?maxResults=40&q=${query}`, token);
     const messages = list.messages || [];
@@ -79,17 +80,25 @@ export default async function handler(req, res) {
     }
  
     // 4. Ask Claude to extract expenses from all emails in one call
-    const prompt = `You are extracting expense transactions from Singapore bank/payment emails.
+    const prompt = `You are extracting expense transactions from Singapore bank and payment app emails.
  
-For each email below, extract any expense transaction. Skip promotions, newsletters, OTPs, login alerts, and balance summaries.
+Rules:
+- Extract ONLY actual spending transactions (purchases, rides, transfers out, bill payments)
+- Skip: OTPs, login alerts, promotional emails, newsletters, balance summaries, incoming transfers (money received), credit card bill statements (the summary, not individual charges)
+- For DBS/UOB emails: look for card transaction alerts, GIRO payments, PayNow transfers sent
+- For Grab/Gojek/TADA: extract ride fare or food delivery amounts
+- For PayLah/PayNow: extract outgoing payment amounts only
+- merchant: use the actual merchant name, not the bank name (e.g. "Grab" not "DBS Card Alert")
+- payment: use the actual payment method e.g. "DBS Credit Card", "UOB Debit Card", "PayLah!", "PayNow", "Cash"
+- If amount includes GST, use the total amount paid
  
-Return ONLY a JSON array (no markdown) of objects with:
+Return ONLY a JSON array (no markdown, no explanation) of objects:
 { "emailId": string, "merchant": string, "amount": number, "date": "YYYY-MM-DD", "category": one of ["Food & Dining","Public Transport","PHV / Taxi","Shopping","Groceries","Entertainment","Healthcare","Utilities","Annual","Business","Others"], "payment": string, "note": string }
  
 Emails:
 ${emails.map((e, i) => `--- Email ${i + 1} (id: ${e.id}) ---\nFrom: ${e.from}\nSubject: ${e.subject}\nBody: ${e.body}`).join("\n\n")}
  
-Return [] if no valid transactions found. JSON only, no explanation.`;
+Return [] if no valid spending transactions found. JSON array only.`;
  
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
